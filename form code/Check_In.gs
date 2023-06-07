@@ -1,95 +1,90 @@
+// 定数を定義
+var HEADER_ROW_INDEX = 0;
+var OPTION_START_ROW_INDEX = 1;
+var SPREADSHEET_ID = "14Gtg-jIt7QwIOjxj2LEDaTODT73icE7yjKc4iyL8U0Q"; // ここにスプレッドシートのIDを指定
+var SHEET_NAME = "シート1"; // ここにシート名を指定
+var PARENT_FOLDER_ID = "1FHHVhJDeMVBm9QLc-9vs6FFLJ1JARJjt"; // ここに親フォルダのIDを指定
+
 function createFormFromExcel() {
-    var spreadsheetId = "14Gtg-jIt7QwIOjxj2LEDaTODT73icE7yjKc4iyL8U0Q"; // ExcelファイルがアップロードされるGoogleスプレッドシートのIDを指定してください
-    var sheetName = "シート1"; // Excelファイルがアップロードされるシート名を指定してください
-    var parentFolderId = "1FHHVhJDeMVBm9QLc-9vs6FFLJ1JARJjt"; // フォームと回答スプレッドシートを格納する親フォルダのIDを指定してください
-  
-    // ファイル選択ダイアログの表示
-    var files = DriveApp.getFiles();
-  
-    // 選択されたファイルの情報を取得
-    var file;
-    while (files.hasNext()) {
-      var currentFile = files.next();
-      if (currentFile.getId() === spreadsheetId) {
-        file = currentFile;
-        break;
-      }
-    }
-  
-    if (!file) {
-      Logger.log("指定されたファイルが見つかりません。");
-      return;
-    }
-  
-    // フォームの作成
-    var responseSpreadsheet = SpreadsheetApp.create("Check IN Answer");
-    var form = FormApp.create("Check IN").setDestination(FormApp.DestinationType.SPREADSHEET, responseSpreadsheet.getId());
-  
-    // Excelファイルのデータを取得し、フォームに追加
-    var spreadsheet = SpreadsheetApp.openById(file.getId());
-    var sheet = spreadsheet.getSheetByName(sheetName);
-  
-    if (!sheet) {
-      Logger.log("指定されたシートが見つかりません。");
-      return;
-    }
-  
-    var data = sheet.getDataRange().getValues();
-  
-    // ヘッダー行を取得
-    var headerRow = data[0];
-  
-    // プルダウン選択肢を格納する配列
-    var choices = [];
-  
-    // ヘッダー行の要素ごとに選択肢を追加
-    for (var i = 0; i < headerRow.length; i++) {
-      var question = headerRow[i];
-      var options = [];
-  
-      // 各行の対応する列から選択肢を取得
-      for (var j = 1; j < data.length; j++) {
-        options.push(data[j][i]);
-      }
-  
-      // 選択肢を追加
-      choices.push(options);
-  
-      // 質問と選択肢をフォームに追加
-      var item = form.addListItem();
-      item.setTitle(question);
-      item.setChoiceValues(options);
-    }
-  
-    // フォームのURLをログに出力
-    Logger.log("フォームのURL: " + form.getPublishedUrl());
-  
-    // yyyy/mm/dd 形式のフォルダ名を作成
-    var date = new Date();
-    var folderName = Utilities.formatDate(date, "GMT", "yyyy/MM/dd");
-  
-    // 保存先の親フォルダを取得
-    var parentFolder = DriveApp.getFolderById(parentFolderId);
-  
-    // 日付フォルダを作成
-    var dateFolder = parentFolder.createFolder(folderName);
-  
-    // フォームファイルを保存
-    var formFile = DriveApp.getFileById(form.getId());
-    formFile.moveTo(dateFolder);
-  
-    // 回答スプレッドシートを保存
-    var responseSpreadsheetId = responseSpreadsheet.getId();
-    var responseSheetFile = DriveApp.getFileById(responseSpreadsheetId);
-    responseSheetFile.moveTo(dateFolder);
-  
-    // フォームと回答スプレッドシートのURLをログに出力
-    Logger.log("フォームのURL: " + form.getPublishedUrl());
-    Logger.log("回答スプレッドシートのURL: " + responseSpreadsheet.getUrl());
-  
-    // 回答スプレッドシートの共有設定
-    dateFolder.addEditor("example@example.com");
-    dateFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  var file = getFile(SPREADSHEET_ID);
+  if (!file) {
+    throw new Error("指定されたファイルが見つかりません。");
   }
-  
-  
+
+  var spreadsheet = SpreadsheetApp.openById(file.getId());
+  var sheet = getSheet(spreadsheet, SHEET_NAME);
+  if (!sheet) {
+    throw new Error("指定されたシートが見つかりません。");
+  }
+
+  var data = sheet.getDataRange().getValues();
+
+  var responseSpreadsheet = createSpreadsheet("Check In Answer");
+  var form = createForm("Check In", responseSpreadsheet);
+
+  addQuestions(form, data);
+
+  var folder = createAndMoveFiles(form, responseSpreadsheet, PARENT_FOLDER_ID);
+
+  setSharingSettings(folder);
+}
+
+function getFile(spreadsheetId) {
+  var files = DriveApp.getFiles();
+  while (files.hasNext()) {
+    var file = files.next();
+    if (file.getId() === spreadsheetId) {
+      return file;
+    }
+  }
+  return null;
+}
+
+function getSheet(spreadsheet, sheetName) {
+  return spreadsheet.getSheetByName(sheetName);
+}
+
+function createSpreadsheet(name) {
+  return SpreadsheetApp.create(name);
+}
+
+function createForm(name, spreadsheet) {
+  return FormApp.create(name).setDestination(FormApp.DestinationType.SPREADSHEET, spreadsheet.getId());
+}
+
+function addQuestions(form, data) {
+  var headerRow = data[HEADER_ROW_INDEX];
+  for (var i = 0; i < headerRow.length; i++) {
+    var question = headerRow[i];
+    var options = data.slice(OPTION_START_ROW_INDEX).map(row => row[i]);
+    // 重複する選択肢を取り除く
+    var uniqueOptions = [...new Set(options)];
+    var item = form.addListItem();
+    item.setTitle(question);
+    item.setChoiceValues(uniqueOptions);
+  }
+}
+
+function createAndMoveFiles(form, spreadsheet, parentFolderId) {
+  var dateFolder = createDateFolder(parentFolderId);
+  moveFile(form, dateFolder);
+  moveFile(spreadsheet, dateFolder);
+  return dateFolder;
+}
+
+function createDateFolder(parentFolderId) {
+  var date = new Date();
+  var folderName = Utilities.formatDate(date, "GMT", "yyyy/MM/dd");
+  var parentFolder = DriveApp.getFolderById(parentFolderId);
+  return parentFolder.createFolder(folderName);
+}
+
+function moveFile(file, folder) {
+  var fileInDrive = DriveApp.getFileById(file.getId());
+  fileInDrive.moveTo(folder);
+}
+
+function setSharingSettings(folder) {
+  folder.addEditor("example@example.com");
+  folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+}
